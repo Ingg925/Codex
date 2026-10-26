@@ -1,0 +1,26 @@
+/* 数据源只在这里切换；真实模式失败会明确报错，不回退为模拟数据。 */
+const DATA_CONFIG={mode:'mock'};
+(async function(){
+  const A=SVPAnalytics,$=id=>document.getElementById(id),num=n=>Math.round(n).toLocaleString('zh-CN'),money=n=>'$'+num(n),pct=n=>n===null?'—':(n*100).toFixed(1)+'%',escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let data,current=[];
+  function render(){const f=Object.fromEntries(['start','end','channel','kol','campaign'].map(k=>[k,$(k).value]));
+    if(!f.start||!f.end||f.start>f.end){$('status').textContent='请选择有效日期，开始日期不能晚于结束日期。';$('export').disabled=true;['cards','chart','funnelBars','table','invite'].forEach(id=>$(id).replaceChildren());return;}
+    current=A.filter(data.rows,f);const s=A.sum(current);$('export').disabled=!current.length;
+    $('status').textContent=current.length?`${f.start} — ${f.end} · ${current.length} 条批次聚合记录 · 转化观察截至 ${data.asOf}`:'当前组合暂无数据，请更换筛选条件。';
+    const items=[['访问人数',num(s.visits),'首次访问账户'],['注册人数',num(s.registrations),'访问→注册 '+pct(A.rate(s.registrations,s.visits))],['首充人数',num(s.deposits),'访问→首充 '+pct(A.rate(s.deposits,s.visits))],['首单人数',num(s.traders),'首充→首单 '+pct(A.rate(s.traders,s.deposits))],['累计交易量',money(s.volume),'所选获客批次累计'],['累计手续费',money(s.fees),'模拟：未扣返佣'],['累计净入金',money(s.depositAmount-s.withdrawalAmount),'累计入金 − 累计出金'],['首单获客成本',s.traders?money(s.cost/s.traders):'—','市场费用 '+money(s.cost)]];
+    $('cards').innerHTML=items.map(([label,value,note])=>`<article class="card"><label>${label}</label><div class="number">${value}</div><small>${note}</small></article>`).join('');
+    let previous=s.visits;$('funnelBars').innerHTML=[['访问',s.visits],['注册',s.registrations],['首充',s.deposits],['首单',s.traders]].map(([label,value],i)=>{const step=pct(A.rate(value,previous));previous=value;return `<div class="funnel-row"><span>${label}</span><div class="track"><div class="bar" style="width:${s.visits?value/s.visits*100:0}%;opacity:${1-i*.16}"></div></div><div class="funnel-value">${num(value)}<small>${i?'上一步 '+step:'漏斗起点'}</small></div></div>`;}).join('');
+    $('table').innerHTML=A.group(current,'channel').map(r=>`<tr><td>${escape(r.name)}</td><td>${num(r.visits)}</td><td>${num(r.registrations)}</td><td>${num(r.deposits)}</td><td>${num(r.traders)}</td><td>${pct(A.rate(r.traders,r.visits))}</td><td>${money(r.cost)}</td><td>${r.deposits?money(r.cost/r.deposits):'—'}</td><td>${r.traders?money(r.cost/r.traders):'—'}</td><td>${money(r.fees)}</td></tr>`).join('')||'<tr><td colspan="10" class="empty">暂无符合条件的数据</td></tr>';
+    $('invite').innerHTML=[['分享点击人数',s.shareClicks],['受邀注册人数',s.inviteRegistrations],['受邀首充人数',s.inviteDeposits],['受邀首单人数',s.inviteTraders]].map(([label,n])=>`<div><span>${label}</span><b>${num(n)}</b></div>`).join('');
+    const metric=$('trendMetric').value,days=[];for(let d=new Date(f.start+'T00:00:00Z');d<=new Date(f.end+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+1)){days.push(d.toISOString().slice(0,10));if(days.length>366){$('chart').innerHTML='<div class="empty">趋势图最多展示 366 天，请缩短日期范围。</div>';return;}}
+    if(!current.length){$('chart').innerHTML='<div class="empty">暂无数据</div>';return;}
+    const values=days.map(day=>A.sum(current.filter(r=>r.date===day))[metric]),max=Math.max(...values,1),x=i=>45+(days.length===1?270:i/(days.length-1)*540),y=n=>170-n/max*135;
+    const points=values.map((n,i)=>`${x(i)},${y(n)}`).join(' ');
+    $('chart').innerHTML=`<svg viewBox="0 0 620 220" role="img" aria-label="${escape($('trendMetric').selectedOptions[0].text)}每日趋势"><title>${escape(days.map((d,i)=>d+'：'+values[i]).join('；'))}</title>${[0,.5,1].map(t=>`<line x1="45" y1="${y(max*t)}" x2="585" y2="${y(max*t)}" stroke="#e7eeeb"/><text x="0" y="${y(max*t)+4}" fill="#81958e" font-size="10">${num(max*t)}</text>`).join('')}<polygon points="45,170 ${points} 585,170" fill="#edf7f1"/><polyline points="${points}" fill="none" stroke="#268467" stroke-width="2.5"/>${values.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="#268467"><title>${days[i]}：${num(v)}</title></circle>`).join('')}<text x="45" y="200" fill="#81958e" font-size="10">${days[0]}</text><text x="585" y="200" text-anchor="end" fill="#81958e" font-size="10">${days.at(-1)}</text></svg>`;
+  }
+  try{data=await SVPData.load(DATA_CONFIG);$('asof').textContent=data.asOf;$('mode').textContent=data.mode==='mock'?'● 模拟数据 · 演示环境':'● API 数据';if(data.mode==='api')document.querySelector('.notice').textContent=`API 数据 · 截至 ${data.asOf} · 时区 ${data.timezone} · 金额 USD`;
+    ['channel','kol','campaign'].forEach(key=>[...new Set(data.rows.map(r=>r[key]))].sort().forEach(value=>$(key).add(new Option(value,value))));
+    $('filters').addEventListener('submit',e=>e.preventDefault());$('filters').addEventListener('change',render);$('filters').addEventListener('reset',()=>setTimeout(render,0));$('trendMetric').addEventListener('change',render);
+    $('export').addEventListener('click',()=>{const url=URL.createObjectURL(new Blob([A.csv(current)],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='SVP-渠道效果-'+$('start').value+'-'+$('end').value+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});render();
+  }catch(error){$('status').textContent='加载失败：'+error.message;$('export').disabled=true;}
+})();

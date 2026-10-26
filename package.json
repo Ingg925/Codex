@@ -1,0 +1,1 @@
+{"name":"svp-marketing-dashboard","version":"1.0.0","private":true,"description":"SVP 市场数据看板 MVP（模拟数据）","scripts":{"start":"node server.cjs","test":"node --test tests/*.test.cjs","check":"node --check app.js && node --check data.js && node --check analytics.js && node --check server.cjs"},"engines":{"node":">=20"}}
